@@ -13,6 +13,7 @@
     --today-fg:#0c0e0c;
     --weekend:#8fa3d1;
     --prompt:#7ee787;
+    --holiday:#e8b64a;
   }
   *{box-sizing:border-box;}
   html,body{
@@ -111,16 +112,60 @@
     border-radius:2px;
   }
   td .num{padding:1px 6px;}
+  td.holiday:not(.today){color:var(--holiday);}
+  td.holiday .num{position:relative;}
+  td.holiday:not(.today) .num::after{
+    content:"";
+    position:absolute;
+    left:50%;
+    bottom:-5px;
+    transform:translateX(-50%);
+    width:4px;
+    height:4px;
+    border-radius:50%;
+    background:var(--holiday);
+  }
+  td.today.holiday .num{box-shadow:0 0 0 2px var(--holiday);}
 
   .footer{
     color:var(--dim);
     margin-top:4px;
   }
   .footer .accent{color:var(--accent);}
+
+  .holidays{
+    margin-top:22px;
+    margin-bottom:22px;
+  }
+  .holidays-title{
+    color:var(--dim);
+    font-size:12px;
+    margin-bottom:8px;
+    letter-spacing:1px;
+  }
+  .holidays-title .accent{color:var(--accent);}
+  .holiday-list{
+    list-style:none;
+    margin:0;
+    padding:0;
+  }
+  .holiday-list li{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    padding:3px 0;
+    font-size:13px;
+  }
+  .holiday-list .hdate{color:var(--holiday);white-space:nowrap;}
+  .holiday-list .hname{color:var(--fg);text-align:right;}
+  .holiday-list .hdays{color:var(--dim);white-space:nowrap;font-size:12px;}
+  .holidays-status{color:var(--dim);font-size:13px;}
+  .holidays-status.error{color:#e5989b;}
 </style>
 </head>
 <body>
 <div class="term">
+  <div class="line prompt">guest<span class="sep">@</span>local<span class="sep">:</span><span class="path">~</span><span class="sep">$</span> <span class="cmd">cal</span></div>
 
   <div class="cal">
     <div class="cal-header">
@@ -139,6 +184,15 @@
     </table>
   </div>
 
+  <div class="line prompt">guest<span class="sep">@</span>local<span class="sep">:</span><span class="path">~</span><span class="sep">$</span> <span class="cmd">cal --holidays in</span></div>
+
+  <div class="holidays">
+    <div class="holidays-title">upcoming public holidays <span class="accent">·</span> india</div>
+    <div id="holidaysStatus" class="holidays-status">loading…</div>
+    <ul class="holiday-list" id="holidayList"></ul>
+  </div>
+
+  <div class="line prompt footer">guest<span class="sep">@</span>local<span class="sep">:</span><span class="path">~</span><span class="sep">$</span> <span class="cursor"></span></div>
 </div>
 
 <script>
@@ -153,6 +207,12 @@
   var titleEl = document.getElementById('calTitle');
   var dowEl = document.getElementById('calDow');
   var bodyEl = document.getElementById('calBody');
+
+  // date string 'YYYY-MM-DD' -> holiday name, populated from caldays API
+  var holidayMap = {};
+
+  function pad2(n){ return n < 10 ? '0' + n : '' + n; }
+  function ymd(y, m, d){ return y + '-' + pad2(m + 1) + '-' + pad2(d); }
 
   function render(){
     titleEl.textContent = monthNames[view.month] + ' ' + view.year;
@@ -199,6 +259,10 @@
         if(!cell.other && view.year === realToday.year && view.month === realToday.month && cell.day === realToday.date){
           classes.push('today');
         }
+        if(!cell.other && holidayMap[ymd(view.year, view.month, cell.day)]){
+          classes.push('holiday');
+          td.title = holidayMap[ymd(view.year, view.month, cell.day)];
+        }
         td.className = classes.join(' ');
         tr.appendChild(td);
       }
@@ -223,6 +287,75 @@
   });
 
   render();
+
+  // ---- india public holidays via caldays.com API ----
+  var statusEl = document.getElementById('holidaysStatus');
+  var listEl = document.getElementById('holidayList');
+
+  function daysUntil(dateStr){
+    var target = new Date(dateStr + 'T00:00:00');
+    var today = new Date(realToday.year, realToday.month, realToday.date);
+    var diff = Math.round((target - today) / 86400000);
+    if(diff === 0) return 'today';
+    if(diff === 1) return 'tomorrow';
+    return 'in ' + diff + 'd';
+  }
+
+  function loadHolidays(year){
+    return fetch('https://caldays.com/api/holidays/in?year=' + year)
+      .then(function(res){
+        if(!res.ok) throw new Error('http ' + res.status);
+        return res.json();
+      });
+  }
+
+  Promise.all([
+    loadHolidays(realToday.year),
+    loadHolidays(realToday.year + 1)
+  ]).then(function(results){
+    var all = [];
+    results.forEach(function(r){
+      if(r && Array.isArray(r.holidays)) all = all.concat(r.holidays);
+    });
+
+    all.forEach(function(h){
+      if(h && h.date && h.name) holidayMap[h.date] = h.name;
+    });
+    render();
+
+    var todayStr = ymd(realToday.year, realToday.month, realToday.date);
+    var upcoming = all
+      .filter(function(h){ return h.date >= todayStr; })
+      .sort(function(a, b){ return a.date < b.date ? -1 : 1; })
+      .slice(0, 8);
+
+    if(upcoming.length === 0){
+      statusEl.textContent = 'no upcoming holidays found';
+      return;
+    }
+
+    statusEl.style.display = 'none';
+    listEl.innerHTML = '';
+    upcoming.forEach(function(h){
+      var li = document.createElement('li');
+      var dateSpan = document.createElement('span');
+      dateSpan.className = 'hdate';
+      dateSpan.textContent = h.date;
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'hname';
+      nameSpan.textContent = h.name;
+      var daysSpan = document.createElement('span');
+      daysSpan.className = 'hdays';
+      daysSpan.textContent = daysUntil(h.date);
+      li.appendChild(dateSpan);
+      li.appendChild(nameSpan);
+      li.appendChild(daysSpan);
+      listEl.appendChild(li);
+    });
+  }).catch(function(err){
+    statusEl.textContent = 'could not load holidays (' + err.message + ')';
+    statusEl.className = 'holidays-status error';
+  });
 })();
 </script>
 </body>
