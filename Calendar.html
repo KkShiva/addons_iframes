@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>cal</title>
+<style>
+  :root{
+    --bg:#000000;
+    --fg:#c9d1c9;
+    --dim:#5f6b5f;
+    --accent:#7ee787;
+    --today-bg:#7ee787;
+    --today-fg:#0c0e0c;
+    --weekend:#8fa3d1;
+    --prompt:#7ee787;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:var(--bg);
+    color:var(--fg);
+    font-family:"SFMono-Regular","Cascadia Code","Fira Code",Consolas,"Liberation Mono",Menlo,monospace;
+    font-size:15px;
+    line-height:1.5;
+  }
+  body{
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:48px 16px;
+  }
+  .term{
+    width:100%;
+    max-width:560px;
+  }
+  .line{white-space:pre;}
+  .prompt{color:var(--prompt);}
+  .prompt .sep{color:var(--dim);}
+  .path{color:var(--accent);}
+  .cmd{color:var(--fg);}
+  .cursor{
+    display:inline-block;
+    width:8px;
+    height:1em;
+    background:var(--accent);
+    vertical-align:text-bottom;
+    margin-left:2px;
+    animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0;}}
+
+  .cal{
+    margin-top:6px;
+    margin-bottom:22px;
+  }
+  .cal-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:8px;
+  }
+  .cal-title{
+    color:var(--fg);
+    letter-spacing:2px;
+  }
+  .cal-nav{
+    color:var(--dim);
+    font-size:13px;
+  }
+  .cal-nav button{
+    background:none;
+    border:none;
+    color:var(--dim);
+    font-family:inherit;
+    font-size:13px;
+    cursor:pointer;
+    padding:2px 6px;
+  }
+  .cal-nav button:hover{color:var(--accent);}
+  .cal-nav button:focus-visible{outline:1px solid var(--accent);}
+
+  table{
+    border-collapse:collapse;
+    width:100%;
+  }
+  th,td{
+    text-align:right;
+    padding:4px 8px;
+    width:14.28%;
+    font-variant-numeric:tabular-nums;
+  }
+  th{
+    color:var(--dim);
+    font-weight:normal;
+    font-size:12px;
+    text-transform:lowercase;
+    padding-bottom:6px;
+  }
+  th.weekend{color:var(--dim);}
+  td{color:var(--fg);}
+  td.other-month{color:#31382e;}
+  td.weekend:not(.other-month){color:var(--weekend);}
+  td.today{
+    position:relative;
+    color:var(--today-fg);
+  }
+  td.today .num{
+    background:var(--today-bg);
+    padding:1px 6px;
+    border-radius:2px;
+  }
+  td .num{padding:1px 6px;}
+
+  .footer{
+    color:var(--dim);
+    margin-top:4px;
+  }
+  .footer .accent{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="term">
+
+  <div class="cal">
+    <div class="cal-header">
+      <span class="cal-title" id="calTitle">MONTH YYYY</span>
+      <span class="cal-nav">
+        <button id="prevBtn" aria-label="previous month">&lt; prev</button>
+        <button id="todayBtn" aria-label="jump to today">today</button>
+        <button id="nextBtn" aria-label="next month">next &gt;</button>
+      </span>
+    </div>
+    <table id="calTable">
+      <thead>
+        <tr id="calDow"></tr>
+      </thead>
+      <tbody id="calBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var dowNames = ['sun','mon','tue','wed','thu','fri','sat'];
+  var monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+
+  var now = new Date();
+  var view = { year: now.getFullYear(), month: now.getMonth() };
+  var realToday = { year: now.getFullYear(), month: now.getMonth(), date: now.getDate() };
+
+  var titleEl = document.getElementById('calTitle');
+  var dowEl = document.getElementById('calDow');
+  var bodyEl = document.getElementById('calBody');
+
+  function render(){
+    titleEl.textContent = monthNames[view.month] + ' ' + view.year;
+
+    dowEl.innerHTML = '';
+    dowNames.forEach(function(d, i){
+      var th = document.createElement('th');
+      th.textContent = d;
+      if(i === 0 || i === 6) th.className = 'weekend';
+      dowEl.appendChild(th);
+    });
+
+    bodyEl.innerHTML = '';
+
+    var firstOfMonth = new Date(view.year, view.month, 1);
+    var startDow = firstOfMonth.getDay();
+    var daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
+    var daysInPrevMonth = new Date(view.year, view.month, 0).getDate();
+
+    var cells = [];
+    for(var i = startDow - 1; i >= 0; i--){
+      cells.push({ day: daysInPrevMonth - i, other: true });
+    }
+    for(var d = 1; d <= daysInMonth; d++){
+      cells.push({ day: d, other: false });
+    }
+    while(cells.length % 7 !== 0){
+      cells.push({ day: cells.length - (startDow + daysInMonth) + 1, other: true });
+    }
+
+    for(var w = 0; w < cells.length / 7; w++){
+      var tr = document.createElement('tr');
+      for(var c = 0; c < 7; c++){
+        var cell = cells[w * 7 + c];
+        var td = document.createElement('td');
+        var span = document.createElement('span');
+        span.className = 'num';
+        span.textContent = cell.day;
+        td.appendChild(span);
+
+        var classes = [];
+        if(cell.other) classes.push('other-month');
+        if(c === 0 || c === 6) classes.push('weekend');
+        if(!cell.other && view.year === realToday.year && view.month === realToday.month && cell.day === realToday.date){
+          classes.push('today');
+        }
+        td.className = classes.join(' ');
+        tr.appendChild(td);
+      }
+      bodyEl.appendChild(tr);
+    }
+  }
+
+  document.getElementById('prevBtn').addEventListener('click', function(){
+    view.month--;
+    if(view.month < 0){ view.month = 11; view.year--; }
+    render();
+  });
+  document.getElementById('nextBtn').addEventListener('click', function(){
+    view.month++;
+    if(view.month > 11){ view.month = 0; view.year++; }
+    render();
+  });
+  document.getElementById('todayBtn').addEventListener('click', function(){
+    view.year = realToday.year;
+    view.month = realToday.month;
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
